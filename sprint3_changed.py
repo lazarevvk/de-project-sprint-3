@@ -5,7 +5,7 @@ import pandas as pd
 
 from datetime import datetime, timedelta
 from airflow import DAG
-from airflow.operators.python_operator import PythonOperator, BranchPythonOperator
+from airflow.operators.python_operator import PythonOperator
 from airflow.providers.postgres.operators.postgres import PostgresOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from airflow.hooks.http_hook import HttpHook
@@ -56,7 +56,7 @@ def get_report(ti):
             time.sleep(10)
 
     if not report_id:
-        raise TimeoutError()
+        raise TimeoutError('request failed')
 
     ti.xcom_push(key='report_id', value=report_id)
     print(f'Report_id={report_id}')
@@ -90,8 +90,7 @@ def upload_data_to_staging(filename, date, pg_table, pg_schema, ti):
     open(f"{local_filename}", "wb").write(response.content)
     print(response.content)
 
-    df = pd.read_csv(local_filename)
-    df=df.drop('id', axis=1)
+    df = pd.read_csv(local_filename, index_col=0)
     df=df.drop_duplicates(subset=['uniq_id'])
 
     if 'status' not in df.columns:
@@ -108,7 +107,7 @@ args = {
     'email': ['student@example.com'],
     'email_on_failure': False,
     'email_on_retry': False,
-    'retries': 0
+    'retries': 3
 }
 
 business_dt = '{{ ds }}'
@@ -141,21 +140,16 @@ with DAG(
                    'filename': 'user_order_log_inc.csv',
                    'pg_table': 'user_order_log',
                    'pg_schema': 'staging'})
-
-    update_d_item_table = PostgresOperator(
-        task_id='update_d_item',
-        postgres_conn_id=postgres_conn_id,
-        sql="sql/mart.d_item.sql")
-
-    update_d_customer_table = PostgresOperator(
-        task_id='update_d_customer',
-        postgres_conn_id=postgres_conn_id,
-        sql="sql/mart.d_customer.sql")
-
-    update_d_city_table = PostgresOperator(
-        task_id='update_d_city',
-        postgres_conn_id=postgres_conn_id,
-        sql="sql/mart.d_city.sql")
+    
+    dimension_tasks = list()    
+    for i in ['d_city', 'd_item', 'd_customer', 'f_customer_retention']:
+        dimension_tasks.append(PostgresOperator(
+            task_id = f'update_{i}',
+            postgres_conn_id = 'postgresql_de',
+            sql = f'sql/mart.{i}.sql',
+            dag = dag
+            )
+        ) 
 
     update_f_sales = PostgresOperator(
         task_id='update_f_sales',
@@ -163,11 +157,6 @@ with DAG(
         sql="sql/mart.f_sales.sql",
         parameters={"date": {business_dt}})
 
-    update_f_customer_retention = PostgresOperator(
-        task_id='update_f_customer_retention',
-        postgres_conn_id=postgres_conn_id,
-        sql="sql/mart.f_customer_retention.sql"
-    )
 
     (
             generate_report
