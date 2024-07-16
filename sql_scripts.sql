@@ -1,5 +1,4 @@
 
--- Добавление status в f_sales, insert идёт в папку с дагом для обновления данных 
 
 alter table mart.f_sales
 add column status text;
@@ -10,8 +9,7 @@ case when status = 'refunded' then -payment_amount else payment_amount end as pa
 status from staging.user_order_log uol
 left join mart.d_calendar as dc on uol.date_time::Date = dc.date_actual;
 
-    
--- Добавление витрины f_customer_retention, insert идёт в папку с дагом для обновления данных   
+
 
 drop table if exists mart.f_customer_retention;
 CREATE TABLE mart.f_customer_retention (
